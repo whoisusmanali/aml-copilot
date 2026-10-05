@@ -6,6 +6,7 @@ configuration is validated once at startup and is easy to override in tests.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -14,13 +15,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="AML_", env_file=".env", extra="ignore")
+    # AML_ENV_FILE lets you switch between local (.env) and cloud (.env.cloud) settings.
+    model_config = SettingsConfigDict(
+        env_prefix="AML_", env_file=os.environ.get("AML_ENV_FILE", ".env"), extra="ignore"
+    )
 
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_db: str = "aml"
     postgres_user: str = "aml"
     postgres_password: SecretStr = SecretStr("change-me-locally")
+    postgres_sslmode: str = "prefer"  # "require" for Neon
 
     kafka_bootstrap: str = "localhost:19092"
 
@@ -43,6 +48,7 @@ class Settings(BaseSettings):
         return (
             f"postgresql://{self.postgres_user}:{pwd}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+            f"?sslmode={self.postgres_sslmode}"
         )
 
     @property

@@ -51,4 +51,37 @@ test-int: ## Integration tests (needs make up)
 
 check: lint typecheck test ## Everything CI runs
 
-.PHONY: help install up up-lite down reset ps download data-synthetic data load lint typecheck test test-int check
+# ---------------- Cloud (free tier) ----------------
+TF := $(shell command -v terraform || command -v tofu)
+TF_DIR := infra/terraform/oci
+CLOUD := AML_ENV_FILE=.env.cloud
+
+cloud-init: ## Terraform init for the Oracle VM
+	$(TF) -chdir=$(TF_DIR) init
+
+cloud-plan: ## Show what Terraform will create
+	$(TF) -chdir=$(TF_DIR) plan
+
+cloud-apply: ## Create VM, network, bucket, budget alert
+	$(TF) -chdir=$(TF_DIR) apply
+
+cloud-destroy: ## Delete all Oracle resources created by Terraform
+	$(TF) -chdir=$(TF_DIR) destroy
+
+migrate: ## Apply schema to Neon (needs AML_POSTGRES_MIGRATE_URL in .env.cloud)
+	set -a && . ./.env.cloud && set +a && ./scripts/migrate.sh
+
+cloud-deploy: ## Ship and start the VM stack over Tailscale, then smoke test
+	./scripts/deploy_vm.sh
+
+cloud-ps: ## Status of services on the VM
+	ssh ubuntu@aml-vm 'cd /opt/aml && docker compose -f docker-compose.cloud.yml ps'
+
+cloud-load: ## Load prepared data into Neon
+	$(CLOUD) uv run aml-data load
+
+cloud-test-int: ## Integration tests against Neon
+	$(CLOUD) uv run pytest -m integration
+
+.PHONY: help install up up-lite down reset ps download data-synthetic data load lint typecheck test test-int check \
+	cloud-init cloud-plan cloud-apply cloud-destroy migrate cloud-deploy cloud-ps cloud-load cloud-test-int

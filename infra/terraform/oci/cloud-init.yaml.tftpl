@@ -1,0 +1,23 @@
+#cloud-config
+# Runs once on first boot. Installs Docker + Tailscale, adds swap, prepares /opt/aml.
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+  - make
+  - postgresql-client
+  - unattended-upgrades
+
+runcmd:
+  # 4 GB swap: protects the 12 GB VM from OOM kills during model training.
+  - fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+  - echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  - systemctl enable --now docker
+  - usermod -aG docker ubuntu
+  # Tailscale: private network between your laptop/Codespace, CI and this VM.
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - tailscale up --authkey=${tailscale_auth_key} --hostname=${hostname} --ssh
+  - mkdir -p /opt/aml && chown ubuntu:ubuntu /opt/aml
+  - echo "cloud-init done" > /var/log/aml-bootstrap.done

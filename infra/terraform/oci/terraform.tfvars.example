@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars (git-ignored) and fill in.
+tenancy_ocid        = "ocid1.tenancy.oc1..xxxx"
+user_ocid           = "ocid1.user.oc1..xxxx"
+fingerprint         = "aa:bb:cc:..."
+private_key_path    = "~/.oci/oci_api_key.pem"
+region              = "ca-toronto-1"
+admin_cidr          = "203.0.113.10/32" # curl -s ifconfig.me
+tailscale_auth_key  = "tskey-auth-xxxx"
+alert_email         = "you@example.com"
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"

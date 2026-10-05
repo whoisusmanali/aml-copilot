@@ -1,0 +1,25 @@
+{
+  "name": "aml-copilot",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/terraform:1": {},
+    "ghcr.io/tailscale/codespace/tailscale": {}
+  },
+  "hostRequirements": { "cpus": 2, "memory": "8gb" },
+  "postCreateCommand": "pip install --user uv && uv sync && uv run pre-commit install && sudo apt-get update && sudo apt-get install -y postgresql-client rsync",
+  "postStartCommand": "echo 'Run: sudo tailscale up --accept-routes   (then aml-vm is reachable)'",
+  "forwardPorts": [5432, 19092],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-python.mypy-type-checker",
+        "hashicorp.terraform",
+        "ms-azuretools.vscode-docker",
+        "github.vscode-github-actions"
+      ]
+    }
+  }
+}

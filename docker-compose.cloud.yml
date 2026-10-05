@@ -1,0 +1,101 @@
+# Self-hosted services on the Oracle Always Free VM (ARM, 2 OCPU / 12 GB).
+# Managed services (Neon Postgres, Neo4j AuraDB, Langfuse, Grafana Cloud) are NOT here.
+#
+# Ports bind to all interfaces, but the OCI security list blocks them from the internet.
+# They are only reachable over Tailscale, at aml-vm:<port>.
+#
+# Memory budget (limits): ~5.3 GB, leaving ~6 GB + 4 GB swap for app services in later steps.
+name: aml-cloud
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://${AML_VM_HOST:-aml-vm}:19092
+      - --mode dev-container
+    ports: ["19092:19092", "9644:9644"]
+    volumes: [redpanda:/var/lib/redpanda/data]
+    mem_limit: 1536m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      retries: 20
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.7.2
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports: ["8081:8080"]
+    depends_on: [redpanda]
+    mem_limit: 256m
+    restart: unless-stopped
+
+  # Operational database for Temporal + MLflow metadata. Kept on the VM on purpose:
+  # Temporal polls constantly, which would keep Neon's free compute awake 24/7 and use up
+  # its monthly CU-hours. Business data lives in Neon.
+  ops-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ops
+      POSTGRES_PASSWORD: ${AML_OPS_DB_PASSWORD:?set AML_OPS_DB_PASSWORD in .env.cloud}
+      POSTGRES_DB: ops
+    volumes:
+      - opsdb:/var/lib/postgresql/data
+      - ./infra/postgres/ops-init.sql:/docker-entrypoint-initdb.d/01-ops.sql:ro
+    mem_limit: 1g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ops"]
+      interval: 5s
+      retries: 20
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    depends_on:
+      ops-db: {condition: service_healthy}
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ops
+      POSTGRES_PWD: ${AML_OPS_DB_PASSWORD}
+      POSTGRES_SEEDS: ops-db
+    ports: ["7233:7233"]
+    mem_limit: 1536m
+    restart: unless-stopped
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    depends_on: [temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports: ["8080:8080"]
+    mem_limit: 256m
+    restart: unless-stopped
+
+  mlflow:
+    build: ./infra/mlflow
+    depends_on:
+      ops-db: {condition: service_healthy}
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL:?set from terraform output s3_compat_endpoint}
+      AWS_ACCESS_KEY_ID: ${OCI_S3_ACCESS_KEY:?create an OCI Customer Secret Key}
+      AWS_SECRET_ACCESS_KEY: ${OCI_S3_SECRET_KEY:?}
+      AWS_DEFAULT_REGION: ${OCI_REGION:-ca-toronto-1}
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri postgresql://ops:${AML_OPS_DB_PASSWORD}@ops-db:5432/mlflow
+      --serve-artifacts --artifacts-destination s3://${MLFLOW_BUCKET:-aml-mlflow-artifacts}
+    ports: ["5000:5000"]
+    mem_limit: 768m
+    restart: unless-stopped
+
+volumes:
+  redpanda:
+  opsdb:

@@ -1,0 +1,48 @@
+name: deploy
+
+# Runs after CI passes on main (or manually). Same flow a bank platform team uses:
+# test -> migrate database -> deploy -> smoke test, with secrets in a protected environment.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Migrate Neon schema
+        env:
+          AML_POSTGRES_MIGRATE_URL: ${{ secrets.AML_POSTGRES_MIGRATE_URL }}
+        run: ./scripts/migrate.sh
+
+      - name: Join tailnet (ephemeral node, removed after the job)
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Write env file
+        run: printf '%s\n' "${{ secrets.ENV_CLOUD }}" > .env.cloud
+
+      - name: Deploy to VM and smoke test
+        run: |
+          mkdir -p ~/.ssh && ssh-keyscan -H aml-vm >> ~/.ssh/known_hosts 2>/dev/null || true
+          ./scripts/deploy_vm.sh
+
+      - name: Remove env file
+        if: always()
+        run: rm -f .env.cloud

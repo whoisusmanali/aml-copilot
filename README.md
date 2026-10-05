@@ -35,6 +35,20 @@ make check                    # lint + types + unit tests
 make test-int                 # integration tests against the running DB
 ```
 
+### Running in the cloud (free tier)
+
+The production-style setup uses Oracle Cloud Always Free (VM via Terraform), Neon Postgres,
+Neo4j AuraDB Free, Tailscale and GitHub Actions, all at $0/month.
+Full walkthrough: [`docs/cloud-setup.md`](docs/cloud-setup.md). Design rationale:
+[`docs/adr/0002-cloud-free-tier.md`](docs/adr/0002-cloud-free-tier.md).
+
+```bash
+make cloud-init cloud-plan cloud-apply   # Oracle VM, network, bucket, budget alert
+make migrate                             # schema -> Neon
+make cloud-deploy                        # Redpanda, Temporal, MLflow -> VM + smoke tests
+make cloud-load cloud-test-int           # data -> Neon, integration tests
+```
+
 ### Using the real IBM dataset
 
 1. Create a Kaggle API token (kaggle.com -> Settings -> API) and save it to `~/.kaggle/kaggle.json`.
